@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Wand2, Download, RefreshCw, AlertCircle, Shirt, Coffee, Square, Key, Ruler, X, Send, ShoppingCart } from 'lucide-react';
 
 // API Key буде надано середовищем виконання
-const apiKey = "";
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
 // Фірмові кольори
 const BRAND = {
@@ -13,30 +13,30 @@ const BRAND = {
 };
 
 const PRODUCTS = {
-  mug: { 
-    id: 'mug', 
-    name: 'Чашка', 
+  mug: {
+    id: 'mug',
+    name: 'Чашка',
     icon: Coffee,
     themeColor: BRAND.red,
     getPrompt: () => "A professional photorealistic mockup showing two ceramic coffee mugs placed together, showing the front side and the back side. Below them, show the flat unwrapped rectangular design. The attached image MUST be printed brightly and cleanly on the mugs and the flat layout. Vibrant colors, studio lighting, professional product photography."
   },
-  tshirt: { 
-    id: 'tshirt', 
-    name: 'Футболка', 
+  tshirt: {
+    id: 'tshirt',
+    name: 'Футболка',
     icon: Shirt,
     themeColor: BRAND.yellow,
     getPrompt: (color) => `A photorealistic mockup of a high-quality ${color === 'black' ? 'black' : 'white'} t-shirt (Fruit of the loom style). The attached image MUST be printed realistically on the center of the chest. Show natural fabric folds and shadows over the print. Studio lighting, modern fashion look.`
   },
-  pillow: { 
-    id: 'pillow', 
+  pillow: {
+    id: 'pillow',
     name: 'Подушка',
     icon: Square,
     themeColor: BRAND.blue,
     getPrompt: () => "A photorealistic mockup of a 35x35 cm square plush fuzzy throw pillow. The attached image MUST be printed in the center, leaving a distinct, unprinted WHITE BORDER (margin) around all four edges of the fabric. Soft plush/fleece texture, cozy interior lighting."
   },
-  keychain: { 
-    id: 'keychain', 
-    name: 'Брелок', 
+  keychain: {
+    id: 'keychain',
+    name: 'Брелок',
     icon: Key,
     themeColor: BRAND.green,
     getPrompt: () => "A photorealistic macro close-up of a premium metal keychain resting on a wooden table. The attached image MUST be printed perfectly inside the central printable area of the keychain. High detail, shallow depth of field, professional photography."
@@ -47,7 +47,7 @@ export default function App() {
   const [activeProduct, setActiveProduct] = useState('tshirt');
   const [uploadedImage, setUploadedImage] = useState(null);
   const [uploadedMimeType, setUploadedMimeType] = useState(null);
-  
+
   // Стан для генерації
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedResult, setGeneratedResult] = useState(null);
@@ -58,7 +58,7 @@ export default function App() {
   const [selectedGender, setSelectedGender] = useState('unisex');
   const [tshirtColor, setTshirtColor] = useState('white');
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
-  
+
   // Додаємо інтеграцію з Telegram Web App
   useEffect(() => {
     const script = document.createElement('script');
@@ -67,8 +67,8 @@ export default function App() {
     script.onload = () => {
       if (window.Telegram && window.Telegram.WebApp) {
         const tg = window.Telegram.WebApp;
-        tg.ready(); // Повідомляємо Telegram, що додаток готовий
-        tg.expand(); // Розгортаємо на весь екран
+        tg.ready();
+        tg.expand();
       }
     };
     document.head.appendChild(script);
@@ -79,7 +79,7 @@ export default function App() {
       }
     };
   }, []);
-  
+
   const fileInputRef = useRef(null);
   const product = PRODUCTS[activeProduct];
 
@@ -88,74 +88,64 @@ export default function App() {
     if (!file) return;
 
     setUploadedMimeType(file.type);
-    
     const reader = new FileReader();
     reader.onload = (event) => {
       setUploadedImage(event.target.result);
-      setGeneratedResult(null); 
+      setGeneratedResult(null);
       setError(null);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
   const generateVisualization = async () => {
     if (!uploadedImage) return;
-    
     setIsGenerating(true);
     setError(null);
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
-    const base64Data = uploadedImage.split(',')[1];
-    
+    // Оновлена модель gemini-3.6-flash згідно з вимогою помилки на сайті
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
     const promptText = product.getPrompt(tshirtColor);
+    
+    // Витягуємо чистий base64 без префікса data:image/...
+    const base64CleanData = uploadedImage.split(',')[1];
 
     const payload = {
       contents: [{
         parts: [
           { text: promptText },
-          { inlineData: { mimeType: uploadedMimeType, data: base64Data } }
+          { inlineData: { mimeType: uploadedMimeType, data: base64CleanData } }
         ]
-      }],
-      generationConfig: { 
-        responseModalities: ['TEXT', 'IMAGE'] 
-      }
+      }]
     };
 
-    const delays = [1000, 2000, 4000, 8000, 16000];
-    let lastError = null;
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-    for (let i = 0; i < 6; i++) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        
-        if (!response.ok) throw new Error(`Помилка сервера: ${response.status}`);
-        
-        const result = await response.json();
-        const imgPart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-        
-        if (imgPart) {
-          const finalImageUrl = `data:${imgPart.inlineData.mimeType};base64,${imgPart.inlineData.data}`;
-          setGeneratedResult(finalImageUrl);
-          setIsGenerating(false);
-          return;
-        } else {
-          throw new Error("AI не зміг згенерувати зображення. Спробуйте інше фото.");
-        }
-      } catch (err) {
-        lastError = err;
-        if (i < 5) await delay(delays[i]);
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `Помилка сервера: ${response.status}`);
       }
+
+      const result = await response.json();
+      const imgPart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+
+      if (imgPart && imgPart.inlineData) {
+        const finalImageUrl = `data:${imgPart.inlineData.mimeType || 'image/jpeg'};base64,${imgPart.inlineData.data}`;
+        setGeneratedResult(finalImageUrl);
+      } else {
+        const textPart = result.candidates?.[0]?.content?.parts?.find(p => p.text);
+        throw new Error(textPart?.text || "AI не повернув зображення. Спробуйте інше фото.");
+      }
+    } catch (err) {
+      setError(err.message || "Сталася невідома помилка при генерації.");
+    } finally {
+      setIsGenerating(false);
     }
-    
-    setError(lastError.message || "Сталася невідома помилка при генерації.");
-    setIsGenerating(false);
   };
 
   const handleTelegramOrder = () => {
@@ -200,47 +190,36 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900">
-      
-      {/* Оновлена Шапка */}
+      {/* Шапка */}
       <header className="bg-white border-b shadow-sm z-30 sticky top-0 px-4 py-3 sm:px-6">
         <div className="max-w-6xl mx-auto relative flex flex-col sm:flex-row items-center justify-between gap-3">
-          
-          {/* Десктопний бейдж (ліворуч) */}
-        <div className="hidden sm:flex flex-1">
-          <div className="text-sm font-medium text-gray-500 flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full w-fit">
-            <Wand2 size={16} className="text-purple-500 shrink-0" />
-            <span className="hidden lg:inline">Генерація мокапів за допомогою ШІ</span>
-            <span className="lg:hidden">ШІ Візуалізатор</span>
+          <div className="hidden sm:flex flex-1">
+            <div className="text-sm font-medium text-gray-500 flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full w-fit">
+              <Wand2 size={16} className="text-purple-500 shrink-0" />
+              <span className="hidden lg:inline">Генерація мокапів за допомогою ШІ</span>
+              <span className="lg:hidden">ШІ Візуалізатор</span>
+            </div>
+          </div>
+
+          <div className="flex-1 flex justify-between sm:justify-end items-center gap-4 w-full">
+            <Logo />
+            <div className="flex shrink-0">
+              <a 
+                href="https://instaprintua.com/ua/g84202963-pid-zamovlennya" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="flex items-center justify-center gap-2 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 z-50 bg-[#0071bc] hover:bg-[#005a96] group"
+              >
+                <ShoppingCart size={20} className="shrink-0 group-hover:animate-bounce" />
+                <span className="text-sm sm:text-base font-bold text-center leading-tight">
+                  Каталог товарів<br className="sm:hidden" /> для друку
+                </span>
+              </a>
+            </div>
           </div>
         </div>
 
-        {/* Кнопка та Логотип (праворуч) */}
-        <div className="flex-1 flex justify-between sm:justify-end items-center gap-4 w-full">
-          
-          {/* Логотип */}
-          <Logo />
-
-          {/* Кнопка "Каталог" (у правому куті) */}
-          <div className="flex shrink-0">
-            <a 
-              href="https://instaprintua.com/ua/g84202963-pid-zamovlennya"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 z-50 bg-[#0071bc] hover:bg-[#005a96] group"
-            >
-              <ShoppingCart size={20} className="shrink-0 group-hover:animate-bounce" />
-              <span className="text-sm sm:text-base font-bold text-center leading-tight">
-                Каталог товарів<br className="sm:hidden" /> для друку
-              </span>
-            </a>
-          </div>
-          
-        </div>
-
-      </div>
-      
-      {/* Мобільний бейдж (під логотипом) */}
-      <div className="sm:hidden flex justify-center mt-3">
+        <div className="sm:hidden flex justify-center mt-3">
           <div className="text-xs font-medium text-gray-500 flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full">
             <Wand2 size={14} className="text-purple-500" />
             <span>Генерація мокапів за допомогою ШІ</span>
@@ -249,11 +228,8 @@ export default function App() {
       </header>
 
       <main className="flex-grow max-w-5xl mx-auto w-full p-4 sm:p-8 flex flex-col items-center">
-        
-        {/* Крок 1 та 2 */}
         {!generatedResult && !isGenerating && (
           <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in duration-300">
-            
             {/* Вибір продукту */}
             <div className="p-6 sm:p-8 border-b border-gray-100">
               <h2 className="text-xl font-bold mb-6 text-center">1. Оберіть продукт</h2>
@@ -272,10 +248,7 @@ export default function App() {
                     }`}
                     style={{ borderColor: activeProduct === p.id ? p.themeColor : 'transparent' }}
                   >
-                    <p.icon 
-                      size={32} 
-                      style={{ color: activeProduct === p.id ? p.themeColor : '#9ca3af' }} 
-                    />
+                    <p.icon size={32} style={{ color: activeProduct === p.id ? p.themeColor : '#9ca3af' }} />
                     <span className={`font-medium ${activeProduct === p.id ? 'text-gray-900' : ''}`}>
                       {p.name}
                     </span>
@@ -287,20 +260,18 @@ export default function App() {
             {/* Налаштування футболки */}
             {activeProduct === 'tshirt' && (
               <div className="px-6 sm:px-8 py-5 border-b border-gray-100 bg-yellow-50/30 flex flex-col lg:flex-row items-center justify-between gap-6">
-                
                 <div className="flex flex-col sm:flex-row items-center gap-6 w-full lg:w-auto">
-                  {/* Вибір кольору */}
                   <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm w-full sm:w-auto justify-center">
                     <span className="font-medium text-gray-700 text-sm">Колір:</span>
                     <div className="flex gap-2">
                       <button 
-                        onClick={() => setTshirtColor('white')}
+                        onClick={() => setTshirtColor('white')} 
                         className={`w-8 h-8 rounded-full border-2 transition-all ${tshirtColor === 'white' ? 'border-yellow-400 scale-110 shadow-md' : 'border-gray-200 hover:border-gray-300'}`}
                         style={{ backgroundColor: '#ffffff' }}
                         title="Біла футболка"
                       />
                       <button 
-                        onClick={() => setTshirtColor('black')}
+                        onClick={() => setTshirtColor('black')} 
                         className={`w-8 h-8 rounded-full border-2 transition-all ${tshirtColor === 'black' ? 'border-yellow-400 scale-110 shadow-md' : 'border-gray-700 hover:border-gray-900'}`}
                         style={{ backgroundColor: '#111827' }}
                         title="Чорна футболка"
@@ -308,10 +279,9 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Вибір статі та розміру */}
                   <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
                     <select 
-                      value={selectedGender}
+                      value={selectedGender} 
                       onChange={(e) => setSelectedGender(e.target.value)}
                       className="bg-white border border-gray-300 rounded-xl px-4 py-2.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 shadow-sm w-full sm:w-auto cursor-pointer"
                     >
@@ -321,7 +291,7 @@ export default function App() {
                     </select>
 
                     <select 
-                      value={selectedSize}
+                      value={selectedSize} 
                       onChange={(e) => setSelectedSize(e.target.value)}
                       className="bg-white border border-gray-300 rounded-xl px-4 py-2.5 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 shadow-sm w-full sm:w-auto cursor-pointer"
                     >
@@ -362,8 +332,6 @@ export default function App() {
               <h2 className="text-xl font-bold mb-6 text-center">2. Завантажте принт та генеруйте</h2>
               
               <div className="flex flex-col sm:flex-row gap-8 w-full items-center justify-center">
-                
-                {/* Зона завантаження */}
                 <div 
                   onClick={() => fileInputRef.current?.click()}
                   className={`w-56 h-56 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden relative group ${
@@ -383,26 +351,26 @@ export default function App() {
                       <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                         <Upload size={32} className="text-gray-500" />
                       </div>
-                      <span className="text-sm font-medium text-gray-600 text-center px-4">Завантажте макет<br/>(JPEG, PNG)</span>
+                      <span className="text-sm font-medium text-gray-600 text-center px-4">
+                        Завантажте макет<br/>(JPEG, PNG)
+                      </span>
                     </>
                   )}
                   <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" />
                 </div>
 
                 <div className="flex-1 w-full sm:w-auto flex flex-col justify-center gap-3 max-w-sm">
-                  <button 
+                  <button
                     onClick={generateVisualization}
                     disabled={!uploadedImage}
                     className={`w-full px-8 py-5 rounded-2xl font-bold text-lg text-white shadow-xl flex items-center justify-center gap-3 transition-all ${
-                      !uploadedImage 
-                        ? 'bg-gray-300 cursor-not-allowed shadow-none' 
-                        : 'hover:scale-105 active:scale-95'
+                      !uploadedImage ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'hover:scale-105 active:scale-95'
                     }`}
                     style={{ backgroundColor: uploadedImage ? product.themeColor : undefined }}
                   >
-                    <Wand2 size={24} />
-                    Візуалізувати в ШІ
+                    <Wand2 size={24} /> Візуалізувати в ШІ
                   </button>
+
                   <p className="text-xs text-gray-500 text-center flex flex-col gap-1.5 mt-2 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
                     <span className="font-medium text-gray-700">⚡ Як це працює:</span>
                     {activeProduct === 'pillow' && <span>Буде створено плюшеву подушку з білою рамкою.</span>}
@@ -412,7 +380,7 @@ export default function App() {
                   </p>
                 </div>
               </div>
-              
+
               {error && (
                 <div className="mt-6 w-full max-w-2xl bg-red-50 text-red-600 p-4 rounded-xl flex items-start gap-3 border border-red-100">
                   <AlertCircle size={20} className="shrink-0 mt-0.5" />
@@ -428,19 +396,18 @@ export default function App() {
           <div className="flex flex-col items-center justify-center py-20 w-full max-w-2xl animate-in fade-in duration-500">
             <div className="relative w-32 h-32 mb-8">
               <div className="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
-              <div 
-                className="absolute inset-0 border-4 border-t-transparent rounded-full animate-spin"
-                style={{ borderColor: `${product.themeColor} transparent transparent transparent` }}
-              ></div>
+              <div className="absolute inset-0 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: `${product.themeColor} transparent transparent transparent` }}></div>
               <div className="absolute inset-0 flex items-center justify-center">
                 <Wand2 size={32} style={{ color: product.themeColor }} className="animate-pulse" />
               </div>
             </div>
             <h2 className="text-2xl font-bold mb-2 text-center">Штучний інтелект створює магію...</h2>
             <p className="text-gray-500 text-center max-w-md">
-              Аналізуємо ваш дизайн та накладаємо його на 
-              {activeProduct === 'mug' ? ' чашки' : activeProduct === 'tshirt' ? (tshirtColor === 'black' ? ' чорну футболку' : ' білу футболку') : activeProduct === 'pillow' ? ' плюшеву подушку' : ' брелок'} 
-              з урахуванням освітлення, текстури та перспективи.
+              Аналізуємо ваш дизайн та накладаємо його на {
+                activeProduct === 'mug' ? ' чашки' :
+                activeProduct === 'tshirt' ? (tshirtColor === 'black' ? ' чорну футболку' : ' білу футболку') :
+                activeProduct === 'pillow' ? ' плюшеву подушку' : ' брелок'
+              } з урахуванням освітлення, текстури та перспективи.
             </p>
           </div>
         )}
@@ -453,7 +420,6 @@ export default function App() {
                 <h2 className="text-3xl font-black text-gray-900 tracking-tight">Ваш результат</h2>
                 <p className="text-gray-500">Ось як виглядатиме готова продукція</p>
               </div>
-              
               <button 
                 onClick={() => setGeneratedResult(null)}
                 className="text-sm font-medium text-gray-500 hover:text-gray-900 flex items-center gap-2 bg-white px-5 py-2.5 rounded-full border shadow-sm transition-colors"
@@ -463,11 +429,7 @@ export default function App() {
             </div>
 
             <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-2xl border border-gray-100 w-full relative overflow-hidden group">
-              <img 
-                src={generatedResult} 
-                alt="AI Generated Mockup" 
-                className="w-full h-auto max-h-[70vh] object-contain rounded-2xl bg-gray-100"
-              />
+              <img src={generatedResult} alt="AI Generated Mockup" className="w-full h-auto max-h-[70vh] object-contain rounded-2xl bg-gray-100" />
             </div>
 
             <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
@@ -476,10 +438,8 @@ export default function App() {
                 download={`print-file.${getFileExtension()}`}
                 className="px-8 py-4 rounded-xl font-bold text-lg bg-gray-100 text-gray-800 border border-gray-300 shadow-md flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors"
               >
-                <Download size={24} />
-                Завантажити чистий макет
+                <Download size={24} /> Завантажити чистий макет
               </a>
-              
               <button 
                 onClick={handleTelegramOrder}
                 className="px-8 py-4 rounded-xl font-bold text-lg text-white shadow-lg flex items-center justify-center gap-2 transition-transform hover:scale-105"
@@ -488,7 +448,7 @@ export default function App() {
                 Утвердити та замовити <Send size={24} />
               </button>
             </div>
-            
+
             <p className="text-center text-sm text-gray-500 mt-4">
               * При натисканні "Утвердити та замовити" ви перейдете в Telegram до менеджера <strong>@instaprint</strong> з готовим повідомленням. Не забудьте прикріпити макет!
             </p>
@@ -506,9 +466,8 @@ export default function App() {
                 <X size={24} />
               </button>
             </div>
-            
+
             <div className="p-6 overflow-y-auto max-h-[75vh]">
-              
               {/* Чоловіча / Унісекс */}
               <div className="mb-8">
                 <h4 className="font-bold text-lg mb-3 flex items-center gap-2 uppercase tracking-wider text-gray-800 border-b pb-2">
@@ -588,7 +547,6 @@ export default function App() {
                   </table>
                 </div>
               </div>
-
             </div>
           </div>
         </div>
